@@ -1,0 +1,5 @@
+{
+  "update_price_qty": true,
+  "update_sale_price": true,
+  "update_description": false
+}
