@@ -10,6 +10,8 @@ import httpx
 import pandas as pd
 from httpx import Timeout
 import re
+from datetime import datetime
+
 
 
 
@@ -302,53 +304,43 @@ SETTINGS_TEMPLATE = """
 
 <fieldset>
   <legend>2. Налаштування синхронізації</legend>
-  <form id="syncForm" method="post" action="{{ url_for('settings') }}">
-    <div style="display: inline-grid; gap: 0.5em; margin-bottom: 1em;">
-      <label>
-        <input type="checkbox" name="update_price_qty"
-               {% if sync_settings.update_price_qty %}checked{% endif %}>
-        Оновити ціну та залишки
-      </label>
-      <label>
-        <input type="checkbox" name="update_sale_price"
-               {% if sync_settings.update_sale_price %}checked{% endif %}>
-        Оновити розпродажну ціну
-      </label>
-      <label>
-        <input type="checkbox" name="update_description"
-               {% if sync_settings.update_description %}checked{% endif %}>
-        Оновити опис
-      </label>
-    </div>
 
-    <div>
-      <button
-        name="action" value="save_settings"
-        style="
-          background: #e74c3c;
-          color: #fff;
-          border: none;
-          border-radius: 4px;
-          padding: 0.6em 1.2em;
-          cursor: pointer;
-          margin-right: 0.5em;
-        "
-      >Зберегти налаштування</button>
+  <div style="display:inline-grid; gap:0.5em; margin-bottom:1em;">
+    <label>
+      <input type="checkbox" name="update_price_qty"
+             {% if sync_settings.update_price_qty %}checked{% endif %}>
+      Оновити ціну та залишки
+    </label>
+    <label>
+      <input type="checkbox" name="update_sale_price"
+             {% if sync_settings.update_sale_price %}checked{% endif %}>
+      Оновити розпродажну ціну
+    </label>
+    <label>
+      <input type="checkbox" name="update_description"
+             {% if sync_settings.update_description %}checked{% endif %}>
+      Оновити опис
+    </label>
+  </div>
 
-      <button
-        name="action" value="import"
-        onclick="document.getElementById('overlay').style.display='flex'"
-        style="
-          background: #3498db;
-          color: #fff;
-          border: none;
-          border-radius: 4px;
-          padding: 0.6em 1.2em;
-          cursor: pointer;
-        "
-      >Запустити синхронізацію</button>
-    </div>
-  </form>
+  {# Наша новая кнопка #}
+  <div style="margin-top:1em;">
+    <button
+      id="importBtn"
+      type="button"
+      style="
+        background: #3498db;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        padding: 0.6em 1.2em;
+        cursor: pointer;
+      "
+    >
+      ⚙️ Запустити синхронізацію
+    </button>
+  </div>
+
 </fieldset>
 
 <!-- сам оверлей и спиннер (должен быть внизу страницы, рядом с <body>) -->
@@ -391,39 +383,35 @@ SETTINGS_TEMPLATE = """
   </div>
 
 <script>
-  document.addEventListener('DOMContentLoaded', function(){
-    const form    = document.getElementById('importForm'),
-          overlay = document.getElementById('overlay');
+document.addEventListener('DOMContentLoaded', () => {
+  const btn     = document.getElementById('importBtn');
+  const overlay = document.getElementById('overlay');
 
-    form.addEventListener('submit', function(e){
-      e.preventDefault();
-      overlay.style.display = 'flex';
+  btn.addEventListener('click', () => {
+    overlay.style.display = 'flex';
 
-      const data = new FormData(form);
-      data.append('action', 'import');
+    const body = new URLSearchParams();
+    body.set('action', 'import');
 
-       fetch("{{ url_for('settings') }}", {
-        method: 'POST',
-        body: new FormData(importForm),
-        redirect: 'follow'
-      })
-      .then(resp => {
-        // при любом ответе — если редирект, уходим,
-        // иначе просто перезагрузим страницу чтобы показать флеш
-        if (resp.redirected) {
-          window.location.href = resp.url;
-        } else {
-          window.location.reload();
-        }
-      })
-      .catch(err => {
-        // при ошибке сети или DNS скрываем спиннер
-        overlay.style.display = 'none';
-        console.error(err);
-        alert('❌ Помилка синхронізації: ' + err.message);
-      });
+    fetch("{{ url_for('settings') }}", {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    })
+    .then(resp => {
+      if (resp.redirected) {
+        window.location.href = resp.url;
+      } else {
+        window.location.reload();
+      }
+    })
+    .catch(err => {
+      overlay.style.display = 'none';
+      console.error(err);
+      alert('❌ Помилка синхронізації: ' + err.message);
     });
   });
+});
 </script>
 <script>
 document.querySelectorAll('input[type=checkbox]').forEach(cb=>{
@@ -564,6 +552,10 @@ def settings():
 
 
     if act == "import":
+
+        start_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"{start_ts} 🔄 Старт синхронизації", flush=True)
+
         # Сбрасываем буфер перед запуском
         buf_stdout.truncate(0)
         buf_stdout.seek(0)
@@ -1048,6 +1040,7 @@ def settings():
             app.config["LAST_LOGS"] = buf_stdout.getvalue().splitlines()
 
             return redirect(url_for("report"))
+
 
 
 if __name__ == '__main__':
