@@ -11,6 +11,7 @@ import pandas as pd
 from httpx import Timeout
 import re
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 
@@ -553,8 +554,8 @@ def settings():
 
     if act == "import":
 
-        start_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"{start_ts} 🔄 Старт синхронизації", flush=True)
+        ua_now = datetime.now(ZoneInfo("Europe/Kyiv"))
+        print(ua_now.strftime("%Y-%m-%d %H:%M:%S %Z"), "🔄 Старт синхронізації")
 
         # Сбрасываем буфер перед запуском
         buf_stdout.truncate(0)
