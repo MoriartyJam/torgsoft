@@ -32,6 +32,7 @@ builtins.print = print
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
+SYNC_IN_PROGRESS = False
 
 # --- КОНФИГУРАЦИЯ ---
 SHOP_NAME     = os.getenv('SHOPIFY_STORE_URL')
@@ -428,6 +429,16 @@ document.querySelectorAll('input[type=checkbox]').forEach(cb=>{
   });
 });
 </script>
+<script>
+  // если при рендере sync_in_progress == true —
+  // сразу показываем overlay
+  document.addEventListener('DOMContentLoaded', () => {
+    const inProgress = {{ sync_in_progress|lower }};
+    if (inProgress) {
+      document.getElementById('overlay').style.display = 'flex';
+    }
+  });
+</script>
 </body>
 </html>
 """
@@ -511,6 +522,7 @@ def save_settings():
 
 @app.route("/settings", methods=["GET", "POST"])
 def settings():
+    global SYNC_IN_PROGRESS
     view = request.args.get("view", "sync")
     if request.method == "GET":
         sync_settings = app.config.get("SYNC_SETTINGS", DEFAULT_SYNC_SETTINGS)
@@ -518,6 +530,7 @@ def settings():
             SETTINGS_TEMPLATE,
             meta_columns=sorted(meta_columns),
             sync_settings=sync_settings,  # <-- вот его и передаём
+            sync_in_progress=SYNC_IN_PROGRESS,  # <-- передаём флаг
             view=view
         )
 
@@ -553,6 +566,7 @@ def settings():
 
 
     if act == "import":
+        SYNC_IN_PROGRESS = True
 
         ua_now = datetime.now(ZoneInfo("Europe/Kyiv"))
         print(ua_now.strftime("%Y-%m-%d %H:%M:%S %Z"), "🔄 Старт синхронізації")
@@ -1040,6 +1054,7 @@ def settings():
 
             app.config["LAST_LOGS"] = buf_stdout.getvalue().splitlines()
 
+            SYNC_IN_PROGRESS = False
             return redirect(url_for("report"))
 
 
