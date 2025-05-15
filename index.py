@@ -16,7 +16,6 @@ from zoneinfo import ZoneInfo
 
 
 
-
 # ——— Настраиваем “двойной” print — вывод в терминал и в буфер ———
 buf_stdout = io.StringIO()
 _original_print = builtins.print
@@ -32,7 +31,6 @@ builtins.print = print
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
-SYNC_IN_PROGRESS = False
 
 # --- КОНФИГУРАЦИЯ ---
 SHOP_NAME     = os.getenv('SHOPIFY_STORE_URL')
@@ -194,16 +192,17 @@ SETTINGS_TEMPLATE = """
       position: fixed; top: 0; left: 0;
       width: 100%; height: 100%;
       background: rgba(0,0,0,0.3);
+      align-items: center; justify-content: center;
       z-index: 9999;
-      align-items: center;
-      justify-content: center;
-      flex-direction: column;
     }
+    #overlay.active { display: flex; }
     .spinner {
-      width:50px; height:50px; border:5px solid #ddd; border-top:5px solid #3498db;
-      border-radius:50%; animation:spin 1s linear infinite;
+      width:50px; height:50px;
+      border:5px solid #ddd; border-top:5px solid #3498db;
+      border-radius:50%;
+      animation: spin 1s linear infinite;
     }
-    @keyframes spin { to { transform:rotate(360deg); } }
+    @keyframes spin { to { transform: rotate(360deg); } }
     .flash { margin-top:1em; color:#27ae60; font-weight:bold; }
     a.back { text-decoration:none; color:#555; margin-bottom:1em; display:inline-block; }
   </style>
@@ -307,7 +306,10 @@ SETTINGS_TEMPLATE = """
 <fieldset>
   <legend>2. Налаштування синхронізації</legend>
 
-  <div style="display:inline-grid; gap:0.5em; margin-bottom:1em;">
+
+  <!-- Єдина форма для збереження чекбоксів -->
+ <form id="syncForm" method="post" action="{{ url_for('settings') }}">
+  <div class="checkboxes" style="display:inline-grid; gap:0.5em; margin-bottom:1em;">
     <label>
       <input type="checkbox" name="update_price_qty"
              {% if sync_settings.update_price_qty %}checked{% endif %}>
@@ -324,50 +326,22 @@ SETTINGS_TEMPLATE = """
       Оновити опис
     </label>
   </div>
+<div>
+  <!-- Зберегти налаштування -->
+  <button type="submit" name="action" value="save_settings"
+          style="background:#e74c3c;color:#fff;…">
+    💾 Зберегти налаштування
+  </button>
 
-  {# Наша новая кнопка #}
-  <div style="margin-top:1em;">
-    <button
-      id="importBtn"
-      type="button"
-      style="
-        background: #3498db;
-        color: #fff;
-        border: none;
-        border-radius: 4px;
-        padding: 0.6em 1.2em;
-        cursor: pointer;
-      "
-    >
-      ⚙️ Запустити синхронізацію
-    </button>
-  </div>
-
+  <!-- Запустити синхронізацію -->
+  <button id="importBtn" type="submit" name="action" value="import"
+        style="background:#3498db;color:#fff; margin-left:1em;">
+  ⚙️ Запустити синхронізацію
+</button>
+</div>
+</form>
 </fieldset>
 
-<!-- сам оверлей и спиннер (должен быть внизу страницы, рядом с <body>) -->
-<div id="overlay" style="
-     display: none;
-     position: fixed; top: 0; left: 0;
-     width: 100%; height: 100%;
-     background: rgba(0,0,0,0.3);
-     z-index: 9999;
-     align-items: center;
-     justify-content: center;
-">
-  <div class="spinner" style="
-       width:50px; height:50px;
-       border:5px solid #ddd;
-       border-top:5px solid #3498db;
-       border-radius:50%;
-       animation: spin 1s linear infinite;
-  "></div>
-  <p style="color:#fff; margin-top:1em;">Проходить синхронізація… Зачекайте</p>
-</div>
-
-<style>
-  @keyframes spin { to { transform: rotate(360deg); } }
-</style>
 
 
     {% with msgs = get_flashed_messages() %}
@@ -380,64 +354,37 @@ SETTINGS_TEMPLATE = """
   </div>
 
   <div id="overlay">
-    <div class="spinner"></div>
-    <p style="color:#fff; margin-top:1em;">Проходить синхронізація… Зачекайте</p>
-  </div>
+  <div class="spinner"></div>
+  <p style="color:#fff; margin-top:1em;">Проходить синхронізація… Зачекайте</p>
+</div>
 
-<script>
+
+  <script>
 document.addEventListener('DOMContentLoaded', () => {
-  const btn     = document.getElementById('importBtn');
-  const overlay = document.getElementById('overlay');
+  const form    = document.getElementById('syncForm'),
+        btn     = document.getElementById('importBtn'),
+        overlay = document.getElementById('overlay');
 
-  btn.addEventListener('click', () => {
-    overlay.style.display = 'flex';
-
-    const body = new URLSearchParams();
-    body.set('action', 'import');
-
-    fetch("{{ url_for('settings') }}", {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString()
-    })
-    .then(resp => {
-      if (resp.redirected) {
-        window.location.href = resp.url;
-      } else {
-        window.location.reload();
-      }
-    })
-    .catch(err => {
-      overlay.style.display = 'none';
-      console.error(err);
-      alert('❌ Помилка синхронізації: ' + err.message);
-    });
+  form.addEventListener('submit', e => {
+    // e.submitter — та кнопка, которой был вызван submit
+    if (e.submitter === btn) {
+      overlay.classList.add('active');
+      // — не надо отменять отправку, пусть идёт дальше —
+    }
   });
 });
 </script>
 <script>
-document.querySelectorAll('input[type=checkbox]').forEach(cb=>{
+// Автозбереження чекбоксів
+document.querySelectorAll('input[type=checkbox]').forEach(cb => {
   cb.addEventListener('change', () => {
     fetch('{{ url_for("save_settings") }}', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        key: cb.name,
-        value: cb.checked
-      })
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({key: cb.name, value: cb.checked})
     });
   });
 });
-</script>
-<script>
-  // если при рендере sync_in_progress == true —
-  // сразу показываем overlay
-  document.addEventListener('DOMContentLoaded', () => {
-    const inProgress = {{ sync_in_progress|lower }};
-    if (inProgress) {
-      document.getElementById('overlay').style.display = 'flex';
-    }
-  });
 </script>
 </body>
 </html>
@@ -522,7 +469,6 @@ def save_settings():
 
 @app.route("/settings", methods=["GET", "POST"])
 def settings():
-    global SYNC_IN_PROGRESS
     view = request.args.get("view", "sync")
     if request.method == "GET":
         sync_settings = app.config.get("SYNC_SETTINGS", DEFAULT_SYNC_SETTINGS)
@@ -530,7 +476,6 @@ def settings():
             SETTINGS_TEMPLATE,
             meta_columns=sorted(meta_columns),
             sync_settings=sync_settings,  # <-- вот его и передаём
-            sync_in_progress=SYNC_IN_PROGRESS,  # <-- передаём флаг
             view=view
         )
 
@@ -566,14 +511,11 @@ def settings():
 
 
     if act == "import":
-        SYNC_IN_PROGRESS = True
-
-        ua_now = datetime.now(ZoneInfo("Europe/Kyiv"))
-        print(ua_now.strftime("%Y-%m-%d %H:%M:%S %Z"), "🔄 Старт синхронізації")
-
         # Сбрасываем буфер перед запуском
         buf_stdout.truncate(0)
         buf_stdout.seek(0)
+        ua_now = datetime.now(ZoneInfo("Europe/Kyiv"))
+        print(ua_now.strftime("%Y-%m-%d %H:%M:%S %Z"), "🔄 Старт синхронізації")[;]
 
         # сохраняем, как пользователь поставил чекбоксы
         sync_settings = app.config["SYNC_SETTINGS"]
@@ -1054,12 +996,8 @@ def settings():
 
             app.config["LAST_LOGS"] = buf_stdout.getvalue().splitlines()
 
-            SYNC_IN_PROGRESS = False
             return redirect(url_for("report"))
-
 
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=80, debug=True)
-
-
