@@ -10,8 +10,8 @@ import httpx
 import pandas as pd
 from httpx import Timeout
 import re
-from datetime import datetime
 from zoneinfo import ZoneInfo
+from datetime import datetime
 
 
 
@@ -514,8 +514,9 @@ def settings():
         # Сбрасываем буфер перед запуском
         buf_stdout.truncate(0)
         buf_stdout.seek(0)
+
         ua_now = datetime.now(ZoneInfo("Europe/Kyiv"))
-        print(ua_now.strftime("%Y-%m-%d %H:%M:%S %Z"), "🔄 Старт синхронізації")[;]
+        print(ua_now.strftime("%Y-%m-%d %H:%M:%S %Z"), "🔄 Старт синхронізації")
 
         # сохраняем, как пользователь поставил чекбоксы
         sync_settings = app.config["SYNC_SETTINGS"]
