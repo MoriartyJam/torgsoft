@@ -10,27 +10,27 @@ import httpx
 import pandas as pd
 from httpx import Timeout
 import re
-from zoneinfo import ZoneInfo
-from datetime import datetime
-
-
-
 
 # ——— Настраиваем “двойной” print — вывод в терминал и в буфер ———
 buf_stdout = io.StringIO()
 _original_print = builtins.print
+
+
 def print(*args, **kwargs):
     # 1) в настоящий терминал
-    _original_print(*args, file=sys.__stdout__, **{k:v for k,v in kwargs.items() if k not in ("file",)})
+    _original_print(*args, file=sys.__stdout__, **{k: v for k, v in kwargs.items() if k not in ("file",)})
     # 2) в наш буфер
     sep = kwargs.get("sep", " ")
     end = kwargs.get("end", "\n")
     buf_stdout.write(sep.join(str(a) for a in args) + end)
+
+
 builtins.print = print
 # —————————————————————————————————————————————————————————————
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
+app.config["SYNC_IN_PROGRESS"] = False
 
 # --- КОНФИГУРАЦИЯ ---
 SHOP_NAME     = os.getenv('SHOPIFY_STORE_URL')
@@ -44,8 +44,8 @@ FTP_PASS      = os.getenv('FTP_PASS')
 FTP_FILE_PATH = "/csv_folder/TSGoods.trs"
 
 POSSIBLE_OPTIONS = ["TheSize", "dlina_stelki", "objem_golenisha"]
-MIN_INTERVAL     = 0.5
-_last_call       = 0.0
+MIN_INTERVAL = 0.5
+_last_call = 0.0
 
 EXCEL_PATH = os.path.join(os.path.dirname(__file__), "хорошоп.xlsx")
 
@@ -57,7 +57,6 @@ DEFAULT_SYNC_SETTINGS = {
 }
 
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'sync_settings.json')
-
 
 # Попытка загрузить сохранённые настройки из файла
 try:
@@ -80,17 +79,18 @@ def load_excel_mapping():
         key = row[0].strip()
         if not key:
             continue
-        title    = row[6].strip()
+        title = row[6].strip()
         img_cell = row[17].strip() or row[18].strip()
-        urls     = [u.strip() for u in img_cell.replace("\n", ";").split(";") if u.strip()]
+        urls = [u.strip() for u in img_cell.replace("\n", ";").split(";") if u.strip()]
         mapping[key] = {"title": title, "images": urls}
     print(f"✅ Excel-мапінг завантажено: {len(mapping)} записей", flush=True)
     return mapping
 
+
 EXCEL_MAP = load_excel_mapping()
 
-def shopify_request(client: httpx.Client, method: str, url: str, max_retries: int = 3, **kwargs):
 
+def shopify_request(client: httpx.Client, method: str, url: str, max_retries: int = 3, **kwargs):
     global _last_call
 
     for attempt in range(1, max_retries + 1):
@@ -127,6 +127,7 @@ def shopify_request(client: httpx.Client, method: str, url: str, max_retries: in
     # если исчерпали все попытки, возвращаем последний ответ
     return resp
 
+
 meta_columns = set()
 
 DEFAULT_SYNC_SETTINGS = {
@@ -135,7 +136,6 @@ DEFAULT_SYNC_SETTINGS = {
     "update_description": True,
 }
 app.config["SYNC_SETTINGS"] = DEFAULT_SYNC_SETTINGS.copy()
-
 
 HOME_TEMPLATE = """
 <!doctype html>
@@ -246,6 +246,7 @@ SETTINGS_TEMPLATE = """
   </script>
 </head>
 <body>
+    <iframe name="syncFrame" id="syncFrame" style="display:none;"></iframe>
   <div class="container">
     <h1>Настроювання та запуск</h1>
     <a class="back" href="{{ url_for('home') }}">← На головну сторінку</a>
@@ -308,7 +309,10 @@ SETTINGS_TEMPLATE = """
 
 
   <!-- Єдина форма для збереження чекбоксів -->
- <form id="syncForm" method="post" action="{{ url_for('settings') }}">
+<form id="syncForm"
+      method="post"
+      action="{{ url_for('settings') }}"
+      target="syncFrame">
   <div class="checkboxes" style="display:inline-grid; gap:0.5em; margin-bottom:1em;">
     <label>
       <input type="checkbox" name="update_price_qty"
@@ -359,19 +363,37 @@ SETTINGS_TEMPLATE = """
 </div>
 
 
-  <script>
+<script>
 document.addEventListener('DOMContentLoaded', () => {
-  const form    = document.getElementById('syncForm'),
-        btn     = document.getElementById('importBtn'),
-        overlay = document.getElementById('overlay');
+  const form      = document.getElementById('syncForm'),
+        btn       = document.getElementById('importBtn'),
+        overlay   = document.getElementById('overlay');
+        iframe    = document.getElementById('syncFrame');
 
-  form.addEventListener('submit', e => {
-    // e.submitter — та кнопка, которой был вызван submit
-    if (e.submitter === btn) {
+form.addEventListener('submit', e => {
+    if (e.submitter === saveBtn) {
+      // обычный POST в это же окно
+      form.removeAttribute('target');
+    }
+    else if (e.submitter === importBtn) {
+      // синхронизация — в iframe
+      form.setAttribute('target', 'syncFrame');
       overlay.classList.add('active');
-      // — не надо отменять отправку, пусть идёт дальше —
     }
   });
+
+
+  const inProgress = {{ 'true' if sync_in_progress else 'false' }};
+  if (inProgress) overlay.classList.add('active');
+
+  iframe.addEventListener('load', () => {
+    let loc;
+    try { loc = iframe.contentWindow.location.pathname; }
+    catch { return; }
+    if (loc === '/report')         window.location.href = '/report';
+    else                           overlay.classList.remove('active');
+  });
+
 });
 </script>
 <script>
@@ -421,7 +443,6 @@ REPORT_TEMPLATE = """
 """
 
 
-
 @app.route("/", methods=["GET"])
 def home():
     # Домашняя страница
@@ -432,13 +453,16 @@ def home():
 def report():
     # получаем список строк лога (или заглушку, если его нет)
     logs = app.config.get("LAST_LOGS",
-             ["(Логи ще не зібрані; спочатку натисніть «Запустити» на сторінці налаштувань або зачекайте, поки синхронізація завершиться.)"])
+                          [
+                              "(Логи ще не зібрані; спочатку натисніть «Запустити» на сторінці налаштувань або зачекайте, поки синхронізація завершиться.)"])
     return render_template_string(REPORT_TEMPLATE, logs=logs)
+
 
 def fetch_file_from_ftp():
     print("🔄 Завантажуємо CSV по FTP…", flush=True)
     try:
-        ftp = FTP(FTP_HOST); ftp.login(FTP_USER, FTP_PASS)
+        ftp = FTP(FTP_HOST);
+        ftp.login(FTP_USER, FTP_PASS)
         buf = io.BytesIO()
         ftp.retrbinary(f"RETR {FTP_FILE_PATH}", buf.write)
         ftp.quit()
@@ -451,6 +475,7 @@ def fetch_file_from_ftp():
     except Exception as e:
         print("❌ Помилка FTP:", e, flush=True)
         return None
+
 
 @app.route('/settings/save', methods=['POST'])
 def save_settings():
@@ -467,18 +492,20 @@ def save_settings():
         json.dump(cfg, f)
     return '', 204
 
+
 @app.route("/settings", methods=["GET", "POST"])
 def settings():
     view = request.args.get("view", "sync")
     if request.method == "GET":
         sync_settings = app.config.get("SYNC_SETTINGS", DEFAULT_SYNC_SETTINGS)
+        in_progress = app.config["SYNC_IN_PROGRESS"]
         return render_template_string(
             SETTINGS_TEMPLATE,
             meta_columns=sorted(meta_columns),
-            sync_settings=sync_settings,  # <-- вот его и передаём
+            sync_settings=sync_settings,
+            sync_in_progress=in_progress,
             view=view
         )
-
 
     act = request.form["action"]
     if act == "add_meta":
@@ -503,20 +530,16 @@ def settings():
         flash("Налаштування збережені")
         return redirect(url_for("settings"))
 
-
     if act == "clear_meta":
         meta_columns.clear()
         flash("Метафілди видалені")
         return redirect(url_for("settings"))
 
-
     if act == "import":
         # Сбрасываем буфер перед запуском
         buf_stdout.truncate(0)
         buf_stdout.seek(0)
-
-        ua_now = datetime.now(ZoneInfo("Europe/Kyiv"))
-        print(ua_now.strftime("%Y-%m-%d %H:%M:%S %Z"), "🔄 Старт синхронізації")
+        app.config["SYNC_IN_PROGRESS"] = True
 
         # сохраняем, как пользователь поставил чекбоксы
         sync_settings = app.config["SYNC_SETTINGS"]
@@ -532,8 +555,8 @@ def settings():
 
         reader = csv.reader(io.StringIO(txt), delimiter=";")
         header = next(reader)
-        idx    = {h:i for i,h in enumerate(header)}
-        rows   = list(reader)
+        idx = {h: i for i, h in enumerate(header)}
+        rows = list(reader)
 
         # группируем по Articul
         groups = {}
@@ -737,7 +760,6 @@ def settings():
                                 if res.status_code < 300:
                                     print(f"    ✨ Metafield '{k}' створено", flush=True)
 
-
                     # === обновление остатков ===
                     if upd:
                         prod = r2.json().get("product", {})
@@ -779,7 +801,6 @@ def settings():
                             else:
                                 print(f"      ❌ Помилка оновлення ціни variant_id={var_id}: {price_res.text}",
                                       flush=True)
-
 
                             q = int(match[idx["WarehouseQuantity"]])
                             inv_res = shopify_request(
@@ -963,9 +984,8 @@ def settings():
 
                     else:
 
-
                         print(f"    ❌ Помилка створення товару: {r2.text}", flush=True)
-
+            app.config["SYNC_IN_PROGRESS"] = False
             print(f"\n🏁 Синхронізація завершена: створено={created}, оновлено={updated}\n", flush=True)
             flash(f": Синхронізація завершена: створено={created}, оновлено={updated}")
 
