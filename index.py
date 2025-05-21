@@ -14,8 +14,6 @@ from zoneinfo import ZoneInfo
 from datetime import datetime
 
 
-
-
 # ——— Настраиваем “двойной” print — вывод в терминал и в буфер ———
 buf_stdout = io.StringIO()
 _original_print = builtins.print
